@@ -59,7 +59,7 @@ THRESHOLDS = [
   ("response_time_ms", "ms", "gt", 50, 300, 1000, 3000),
   ("cpu_pct", "%", "gt", 10, 50, 70, 90),
   ("memory_pct", "%", "gt", 20, 60, 75, 90),
-  ("error_rate_pct", "%", "gt", 0, 2, 5, 15),
+  ("error_rate_pct", "%", "gt", 0, 0.05, 1, 5),
   ("request_count", "count", "lt", 100, 1000, 50, 10),
   ("connection_count", "count", "gt", 5, 50, 80, 100),
 ]

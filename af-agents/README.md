@@ -1,8 +1,8 @@
-# AF Agent System Prompts — Phase 4 (NorthStar Retail Digital Twin)
+# Azure AI Foundry Agents — Error Budget Watcher
 
-Seven **runtime Azure Foundry (AF) agent system prompts**, authored once in the Foundry portal.
-These are **NOT** `.claude/agents/` subagents and **NOT** code — each `.md` file is prompt text to
-paste into the portal.
+Seven **runtime Azure AI Foundry agent system prompts**, authored in the Foundry portal. These are
+not repository subagents and are not executed from these Markdown files; each file is the prompt
+source to paste into its corresponding Foundry agent.
 
 Every agent is **blind and stateless**: per turn it knows only (1) its system prompt, (2) the JSON
 payload the executor feeds it, (3) a menu of allowed tool + agent names. It cannot touch the DB, run
@@ -10,6 +10,42 @@ a tool, or call another agent — it only READS the payload and EMITS one JSON d
 Executor (MCP Client)** is the hub for every agent<->agent and agent<->tool hop.
 
 Files: `Orchestrator.md`, `Detect.md`, `Analyze.md`, `RCA.md`, `Suggest.md`, `Fix.md`, `Ticket.md`.
+
+## Agent responsibilities
+
+The reliability watcher is an outer, deterministic policy layer. Foundry agents run only inside
+the incident-response workflow after policy code decides to open an incident.
+
+| Watcher / workflow responsibility | Owner | Foundry agent? |
+|------------------------------------|-------|----------------|
+| Read live SLI and infrastructure metrics; identify threshold breaches | MCP metrics tools + `Detect` | Yes, `Detect` judges anomalies |
+| Calculate 99.9% SLO, 43.2-minute monthly budget, burn rate, risk, and exhaustion estimate | Backend reliability policy | No; keep arithmetic deterministic |
+| Show baseline risk guidance; explain the numeric forecast | Backend reliability policy | No separate model call in the current runtime |
+| Coordinate the incident after a HIGH-risk policy decision | `Orchestrator` | Yes |
+| Select the primary affected resource and signal | `Analyze` | Yes |
+| Explain likely cause from telemetry | `RCA` + `run_rca` tool | Yes |
+| Propose incident-specific remediation options | `Suggest` + `suggest_fix` tool | Yes; pauses for HITL #1 |
+| Apply the human-approved simulated action | `Fix` + `apply_fix` tool | Yes; not a production change |
+| Draft and submit a ServiceNow ticket | `Ticket` + MCP ticket tool | Yes; pauses for HITL #2 |
+
+`Suggest` is the incident remediation agent, not the dashboard's policy calculator. The dashboard's
+initial recommendations are deterministic rules. Do not add a standalone Error Budget Agent: it
+would duplicate ordinary backend math. Do not add a Forecast or Recommendation prompt until the
+executor has a real invocation path, payload contract, and tests for it. If natural-language
+forecast explanations are later needed, add one bounded `ReliabilityAdvisor` rather than duplicating
+the incident agents.
+
+### Operating boundaries
+
+- The backend owns SLO arithmetic, budget accounting, thresholds, risk state, and whether a fault
+  starts incident response. Agents must not override those decisions.
+- Agents are advisory and evidence-bound. Do not invent metrics, causes, remediation results, SLO
+  values, or ticket outcomes absent from the current payload/tool result.
+- `Fix` acts only through the simulator tool after a human selection. `Ticket` requests ServiceNow
+  creation only after the human submits the draft.
+- Preserve the exact agent/tool names and JSON output contracts below. A prompt-only new agent is
+  not runnable: registration, payload construction, routing, environment configuration, and tests
+  must be added to the executor first.
 
 ---
 

@@ -49,6 +49,31 @@ export interface ScenariosResponse {
   scenarios: Scenario[];
 }
 
+export type ReliabilityRisk = "LOW" | "MEDIUM" | "HIGH";
+
+export interface ReliabilitySnapshot {
+  slo_target: number;
+  window_minutes: number;
+  availability: number;
+  error_rate_pct: number;
+  budget_total_minutes: number;
+  budget_consumed_minutes: number;
+  budget_remaining_minutes: number;
+  budget_remaining_pct: number;
+  burn_rate: number;
+  risk: ReliabilityRisk;
+  reasons: string[];
+  minutes_to_exhaustion: number | null;
+  recommendations: string[];
+  observed_at: string;
+}
+
+export interface ReliabilityResponse {
+  resource: Pick<Resource, "id" | "name" | "display_name">;
+  snapshot: ReliabilitySnapshot;
+  evidence_window_minutes: number;
+}
+
 export type IncidentStatus =
   | "DETECTING"
   | "ANALYZING"

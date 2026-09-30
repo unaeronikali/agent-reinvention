@@ -1,8 +1,8 @@
-# NorthStar Reliability Governor
+# Error Budget Watcher
 
 ## Proposal
 
-Add a standalone SLO and error-budget reliability layer to the NorthStar Digital Twin. The layer continuously evaluates simulated service health and decides when reliability risk warrants investigation. When it detects a qualifying condition, it starts the existing incident-response workflow. The current agents still investigate, propose, and apply a fix; the new layer supplies the broader reliability context and evaluates the outcome.
+Add an SLO and error-budget reliability layer to the NorthStar Digital Twin. The dashboard continuously refreshes a deterministic reliability snapshot from the live sampler. When a user injects a fault, the policy evaluates the affected resource and starts the existing incident-response workflow only at HIGH risk. Existing Foundry agents investigate and recommend remediation; human approval remains in place before fixes and ServiceNow ticket submission.
 
 The project remains a self-contained simulation. ServiceNow is not required: incidents, decisions, approvals, and post-incident summaries are stored and displayed locally.
 
@@ -10,31 +10,30 @@ The project remains a self-contained simulation. ServiceNow is not required: inc
 
 The existing incident flow demonstrates how agents respond to a fault. A reliability governor extends the demonstration from a single incident to an ongoing operational objective: keeping a service within its reliability target over time.
 
-A simple threshold watcher would only alert. This proposal makes the layer meaningfully agentic by having it assess the rate and impact of reliability degradation, choose an appropriate response mode, initiate the existing workflow when warranted, and verify whether the response protected the service objective.
+A simple threshold watcher would only alert. This design combines deterministic SLO math and risk gating with the existing agent orchestration, human approvals, and ServiceNow MCP integration. Policy math stays explainable and repeatable; the agents handle incident diagnosis and remediation proposals.
 
 ## Goals
 
-- Simulate a service-level objective (SLO), such as a monthly availability or request-success target.
-- Track error-budget consumption and burn rate as simulated metrics change.
-- Distinguish between normal operation, elevated risk, and a condition that should start incident response.
-- Reuse the existing incident agents and human approval pauses for diagnosis and remediation.
-- Evaluate service health and budget impact after remediation.
-- Provide a local incident history and a clear explanation of each governor decision.
-- Support repeatable scenarios that can be demonstrated without external ITSM credentials.
+- Use a 99.9% availability target and a 30-day, 43.2-minute error budget for the storefront.
+- Derive availability, observed budget consumption, remaining budget, burn rate, and exhaustion forecast from sampled error rates.
+- Show LOW, MEDIUM, and HIGH risk with metric evidence and deterministic recommendations.
+- Gate the existing incident workflow on HIGH risk; preserve its Foundry agents and human approval pauses.
+- Reuse the NorthStar fault scenarios, metrics table, digital-twin map, incident history, and orchestration canvas.
+- Keep the dashboard and policy calculations runnable locally; external agent/ticket actions require credentials.
 
 ## Non-goals for the first version
 
-- Connecting to a production observability platform or cloud environment.
-- Automatically changing infrastructure without a simulation boundary or human approval.
-- Replacing the incident-response agents or their existing responsibilities.
-- Implementing a complete enterprise SLO management product with arbitrary SLI queries, calendars, and organization-wide policy management.
-- Requiring ServiceNow. A future integration could be optional, but it is not part of the MVP.
+- Connecting to production observability or changing real infrastructure.
+- Automatically applying remediation or submitting ServiceNow tickets without human approval.
+- Replacing the existing incident-response agents or their responsibilities.
+- Configurable multi-service SLO policy, calendar-aware windows, or long-term metric retention.
+- Claiming a full 30-day measured history: the simulator retains 15 minutes by default.
 
 ## Responsibilities
 
-### Reliability Governor: new outer loop
+### Reliability policy: outer decision layer
 
-The governor evaluates service health across time. It owns the SLO policy, error-budget calculations, risk state, and decision to start or defer an incident run. It also evaluates whether the service recovered after a run.
+The policy owns the SLO target, error-budget calculations, risk state, forecast, and decision to start or defer an incident run. The current implementation refreshes status from retained sampler history and evaluates the affected resource when a fault is injected.
 
 ### Incident workflow: existing inner loop
 
@@ -42,85 +41,64 @@ The existing workflow owns incident-level detection, analysis, root-cause analys
 
 ## User-visible flow
 
-1. A user selects an SLO policy and starts a simulation scenario.
-2. The simulated service emits changing health metrics and traffic conditions.
-3. The governor updates the current SLO status, remaining error budget, and burn rate.
-4. If risk increases, the governor records why and either continues monitoring or starts the existing incident workflow according to policy.
-5. Existing agents investigate the fault and propose a remediation. Human approval remains required for consequential actions, following the current HITL pattern.
-6. The simulation applies the approved action and produces updated service metrics.
-7. The governor observes a configurable recovery window, records whether the service recovered, and updates the incident outcome and budget impact.
-8. The user can review the timeline, decisions, approvals, and final result locally.
+1. The app starts the sampler and displays a 99.9% SLO for the customer storefront.
+2. The user injects one of the existing NorthStar fault scenarios.
+3. The policy evaluates the affected resource's latest metrics and retained error-rate samples.
+4. LOW or MEDIUM risk remains in monitoring. HIGH risk starts one existing incident run.
+5. Foundry agents investigate and propose remediation; the user approves the fix and ticket through the existing HITL controls.
+6. The simulator applies the approved fix, and the dashboard reflects new service metrics.
+7. The user can review current budget, policy evidence, incident activity, approvals, and the ticket result.
 
-## Governor decision states
+## Risk states
 
-- **HEALTHY**: SLO is on track and budget burn is within policy.
-- **WATCH**: risk is elevated; continue collecting evidence and explain the signal.
-- **INCIDENT_REQUIRED**: policy conditions are met; start one incident run for the affected service.
-- **RECOVERY_CHECK**: remediation has been applied; assess the service during the recovery window.
-- **RECOVERED**: health is back within policy for the required window.
-- **UNRESOLVED**: health did not recover, or the budget risk remains above policy after the incident run.
+- **LOW**: burn rate and sampled resource metrics are within policy.
+- **MEDIUM**: burn rate is at least 6x, or a monitored metric crosses its warning threshold; continue monitoring.
+- **HIGH**: burn rate is at least 14.4x, remaining budget is at most 20%, or a monitored metric crosses its critical threshold; start incident response on fault injection.
 
-The governor should avoid creating repeated incident runs for the same active service condition. It should retain a concise decision reason and the metric/policy evidence used for each state transition.
+The API rejects another injected scenario while an incident is active. Each snapshot includes a reason and the metric/policy evidence that drove its risk state.
 
 ## Example scenario
 
-A simulated deployment increases request failures while traffic is high. The governor notices that the error budget is burning faster than the selected policy allows. It moves from `HEALTHY` to `WATCH`, then to `INCIDENT_REQUIRED` once the configured trigger is sustained. The existing incident flow identifies the deployment as the likely cause and recommends a rollback. A human approves the rollback. After simulated metrics improve and remain healthy through the recovery window, the governor marks the service `RECOVERED` and records the impact on the error budget.
+A simulated deployment raises storefront errors and latency. The policy reports HIGH risk and a projected exhaustion time, then starts the existing incident flow. The agents identify a likely cause and recommend a fix. A human approves remediation and ticket submission; the sampler returns to normal and the dashboard reports the improved reliability snapshot.
 
 ## Initial policy model
 
-Keep the first policy deliberately small and understandable:
+The first policy is deliberately fixed and explainable:
 
-- SLO target and evaluation window.
-- Metric used as the service-level indicator, such as request success rate.
-- Warning and incident-trigger conditions, based on a sustained error rate or budget burn rate.
-- Recovery window required before declaring recovery.
-- Response mode: `monitor` or `start_incident`.
+- Target: 99.9% availability over a 30-day month (43.2 minutes allowed error budget).
+- SLI proxy: sampled `error_rate_pct`; availability is `100 - error_rate_pct`.
+- Consumption: sum each retained error-rate sample weighted by the configured sampler interval.
+- Burn rate: current error rate divided by the allowed error fraction (0.1%).
+- HIGH triggers: burn rate at least 14.4x, at most 20% budget remaining, or critical latency/CPU/memory.
+- MEDIUM triggers: burn rate at least 6x or warning latency/CPU/memory.
+- Response: LOW and MEDIUM monitor; HIGH starts the existing incident workflow when a fault scenario is injected.
 
-Threshold values should be configurable per scenario or policy, not embedded in agent prompts. The simulator should make the selected policy and its evidence visible to the user.
+Thresholds and math live in backend code, not agent prompts. The dashboard shows
+the retained evidence-window length so a short simulation is not confused with
+30 days of production history.
 
 ## MVP scope
 
-1. Add a local SLO policy and error-budget calculation for one simulated service.
-2. Add a governor evaluation loop that consumes the existing simulated metrics.
-3. Add a decision history showing state changes, evidence, and reasons.
-4. Start the existing incident workflow when the selected policy requires it, while preventing duplicate active runs.
-5. After the incident completes, evaluate recovery and record the outcome.
-6. Provide at least three repeatable scenarios: a brief transient spike that should only be watched, a sustained fault that should start an incident, and a successful remediation followed by recovery verification.
-7. Keep incident records and summaries local; do not require a ServiceNow connection.
+1. Show live reliability status for the customer storefront, based on the existing metrics sampler.
+2. Show availability, remaining and consumed error budget, burn rate, exhaustion forecast, risk evidence, and recommended action.
+3. Evaluate each injected scenario against the policy and start the existing workflow only at HIGH risk.
+4. Reuse the five repeatable NorthStar faults, seven Foundry agents, incident canvas, HITL approvals, and ServiceNow MCP tool.
+5. Keep dashboard and deterministic calculations local; Foundry and ServiceNow credentials are needed only for the external agent/ticket path.
 
 ## Acceptance criteria
 
-- A user can run the MVP end-to-end with no ServiceNow configuration.
-- Error-budget and burn-rate values update from simulated service metrics and are explainable from the chosen policy.
-- The transient-spike scenario does not start an incident when policy says to monitor.
-- The sustained-fault scenario starts exactly one incident run for the active condition.
-- The existing incident workflow, including its human approval pauses, remains responsible for diagnosis and remediation.
-- The governor records the evidence and reason for each meaningful decision.
-- After remediation, the recovery check can produce both `RECOVERED` and `UNRESOLVED` outcomes based on observed metrics.
-- The user can inspect the service state, budget, incident timeline, approvals, and outcome in the app.
+- A seeded baseline produces LOW risk and an error rate consistent with the 99.9% SLO.
+- The 99.9% target yields a 43.2-minute budget for a 30-day window.
+- Error-budget consumption uses observed retained samples and is labeled with its evidence-window limit.
+- A fault with HIGH risk starts exactly one incident workflow; an active incident prevents a second run.
+- Risk evidence and recommendations are visible alongside live NorthStar metrics.
+- The existing incident workflow and human approvals remain responsible for diagnosis, fixes, and ticket submission.
+- The dashboard and policy endpoint work without Foundry or ServiceNow credentials; those credentials are required to complete the external workflow.
 
-## Design considerations
+## Design considerations and next steps
 
-- Treat this as a simulation: make simulated actions and resulting metric changes explicit in the UI.
-- Keep policy evaluation deterministic for repeatable demonstrations; agents can explain or recommend, but core budget math and trigger checks should be ordinary backend logic.
-- Keep the governor's state machine separate from the existing incident executor. Connect them through a narrow trigger and completion/result interface.
-- Preserve the existing single-active-incident invariant unless the product explicitly expands to multiple services and concurrent incidents.
-- Avoid counting the same simulated failure repeatedly or resetting the error budget unexpectedly; define the evaluation window and accounting rules before implementation.
-- Continue to require human approval for remediation in the MVP. Any future autopilot mode should be an explicit simulation policy with visible guardrails.
-
-## Open questions for the team
-
-- Which SLO should the first demo use: availability, request success rate, or latency?
-- Should the governor start incidents only from deterministic policy rules, or may an agent recommend a trigger that policy code then validates?
-- Should the initial MVP support one service, or a small service group with dependencies?
-- Should the error budget persist across simulation runs, or reset when a scenario starts?
-- Where should the reliability view live in the current UI: a new page or an addition to the existing overview?
-
-## Suggested implementation sequence
-
-1. Agree on the first SLI/SLO and error-budget accounting rules.
-2. Implement deterministic calculations and a few unit-level examples before connecting any agents.
-3. Add the governor state machine and local decision history.
-4. Connect `INCIDENT_REQUIRED` to the existing incident workflow and define how completion is reported back.
-5. Build the three repeatable scenarios and validate the acceptance criteria.
-6. Add the reliability view and a local post-incident summary.
+- Treat this as a simulation: make injected faults and resulting metric changes explicit.
+- Keep policy evaluation deterministic; use Foundry agents for diagnosis and fix proposals, not core SLO arithmetic.
+- The current budget is an estimate from a 15-minute retained sample window. Persisted rolling-window aggregation is needed before using it as a long-lived service SLO.
+- Preserve the single-active-incident invariant and human approval for remediation and ticket creation.
+- Next: add a transient-spike scenario and a sustained-fault scenario, persist budget aggregates across sampler retention, and add recovery-window verification after remediation.

@@ -15,6 +15,7 @@ from sse_starlette.sse import EventSourceResponse
 import db
 import executor
 import mcp_client
+import reliability
 import sampler
 import seed
 
@@ -103,6 +104,29 @@ async def resources():
   return {"resource_groups": groups}
 
 
+def _reliability_snapshot(resource_id):
+  history = db.get_metric_history(resource_id, sampler.HISTORY_WINDOW_MIN)
+  metrics = [
+    {"metric_name": metric_name, **point}
+    for metric_name, points in history.items()
+    for point in points
+  ]
+  return reliability.build_reliability_snapshot(metrics, sampler.SAMPLER_INTERVAL_S)
+
+
+@app.get("/api/reliability")
+async def reliability_status():
+  active_incident = db.get_active_incident()
+  resource = db.get_resource(active_incident["resource_id"]) if active_incident else db.get_resource_by_name("webapp-northstar")
+  if resource is None:
+    raise HTTPException(status_code=503, detail="Reliability service has not been seeded")
+  return {
+    "resource": resource,
+    "snapshot": _reliability_snapshot(resource["id"]),
+    "evidence_window_minutes": sampler.HISTORY_WINDOW_MIN,
+  }
+
+
 @app.get("/api/resources/{resource_id}/history")
 async def resource_history(resource_id: int, minutes: int = Query(15, ge=1)):
   if db.get_resource(resource_id) is None:
@@ -150,9 +174,14 @@ async def inject_fault(body: InjectBody):
   scenario = db.get_scenario(body.scenario_id)
   if scenario is None:
     raise HTTPException(status_code=404, detail="Scenario not found")
+  if db.get_active_incident() is not None:
+    raise HTTPException(status_code=409, detail="Resolve the active incident before injecting another fault")
   affected_id = scenario["affected_resource_id"]
   sampler.set_faulted(affected_id, body.scenario_id)
   await sampler.sample_once(affected_id)
+  snapshot = _reliability_snapshot(affected_id)
+  if snapshot["risk"] != "HIGH":
+    return {"incident_id": None, "scenario_id": body.scenario_id, "status": "WATCHING", "snapshot": snapshot}
   incident_id = db.create_incident(body.scenario_id, affected_id)
   try:
     executor.launch_incident(incident_id, auto_approve=body.auto_approve)
@@ -160,7 +189,7 @@ async def inject_fault(body: InjectBody):
     db.deactivate_incident(incident_id)
     sampler.set_all_normal()
     raise HTTPException(status_code=409, detail=str(error))
-  return {"incident_id": incident_id, "scenario_id": body.scenario_id, "status": "DETECTING"}
+  return {"incident_id": incident_id, "scenario_id": body.scenario_id, "status": "DETECTING", "snapshot": snapshot}
 
 
 @app.post("/api/fault/restore")
