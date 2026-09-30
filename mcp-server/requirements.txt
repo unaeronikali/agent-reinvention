@@ -1,0 +1,9 @@
+# NorthStar Retail Digital Twin -- MCP server dependencies.
+# The server (server.py) runs in the SAME Python environment as backend/
+# (backend/mcp_client.py spawns it with sys.executable), so these are also
+# listed in backend/requirements.txt. Kept here too so mcp-server/ is
+# self-describing.
+
+mcp>=2.0.0
+httpx>=0.28.0
+python-dotenv>=1.0.0

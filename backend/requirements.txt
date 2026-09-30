@@ -1,0 +1,22 @@
+# NorthStar Retail Digital Twin -- backend dependencies.
+# Added in Phase 3 (MCP layer) by mcp-engineer for mcp_client.py and the
+# mcp-server subprocess it spawns. backend-engineer (Phase 5/6) should APPEND
+# FastAPI/uvicorn/httpx-for-AF-agents here rather than replacing this file.
+
+mcp>=2.0.0            # Model Context Protocol Python SDK (client + server, stdio transport)
+httpx>=0.28.0          # HTTP client -- used by mcp-server/server.py for the ServiceNow PDI call
+python-dotenv>=1.0.0   # loads SERVICENOW_* + FOUNDRY_* config from project-root .env
+
+# Phase 5/6 (backend-engineer): FastAPI app + executor/agent loop.
+fastapi>=0.115.0       # REST + HITL POST endpoints (main.py)
+uvicorn>=0.30.0        # ASGI server (uvicorn main:app)
+sse-starlette>=2.0.0   # Server-Sent Events stream (server->client canvas/log/HITL)
+
+# Keyless Azure AD auth for the Foundry AF-agent calls (executor.call_af_agent).
+# Uses the developer's `az login` session via DefaultAzureCredential -- no API key.
+azure-identity>=1.19.0  # DefaultAzureCredential (az login / managed identity)
+azure-ai-projects>=2.5.0 # AIProjectClient.get_openai_client(agent_name=...) -> the NEW
+                        # Foundry Agent Service (agents addressed BY NAME via the
+                        # project's OpenAI-compatible Responses API). The old
+                        # azure-ai-agents /assistants surface lists these agents EMPTY.
+openai>=1.50.0          # OpenAI client returned by get_openai_client (responses API)
